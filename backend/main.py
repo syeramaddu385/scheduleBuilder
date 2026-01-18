@@ -49,23 +49,26 @@ df["Subject"] = df["Subject"].astype(str)
 df["Catalog Number"] = df["Catalog Number"].astype(str)
 
 df["CourseKey"] = df["Subject"] + " " + df["Catalog Number"]
+df["NormalizedCourseKey"] = df["CourseKey"].str.lower().str.replace(" ", "")
 
 @app.get("/courses")
 def courses(q: str = Query("", description="Search like 'comp' or '210'")):
-    unique_courses = df["CourseKey"].dropna().unique().tolist()
-    q = q.strip().lower()
+    unique_courses = df[["CourseKey", "NormalizedCourseKey"]].drop_duplicates()
+    
+    q_normalized = q.strip().lower().replace(" ", "")
 
-    if q:
-        unique_courses = [c for c in unique_courses if q in c.lower()]
-
-    unique_courses.sort()
-    return {"courses": unique_courses[:50]}
+    if q_normalized:
+        unique_courses = unique_courses[unique_courses["NormalizedCourseKey"].str.contains(q_normalized, na=False)]
+    
+    result = unique_courses["CourseKey"].tolist()
+    result.sort()
+    return {"courses": result[:50]}
 
 @app.get("/sections")
 def sections(course: str = Query(..., description="Course key like 'COMP 210'")):
-    course = course.strip()
+    course_normalized = course.strip().lower().replace(" ", "")
 
-    sub = df[df["CourseKey"] == course].copy() # sub is a new dataframe consisting of all sections of inputted course
+    sub = df[df["NormalizedCourseKey"] == course_normalized].copy() # sub is a new dataframe consisting of all sections of inputted course
 
     sub = sub.where(pd.notna(sub), None) # converted NaN to None so converting to JSON is easier
 
@@ -75,13 +78,13 @@ def sections(course: str = Query(..., description="Course key like 'COMP 210'"))
         days, start_min, end_min = parse_schedule(r.get("Schedule"))
 
         out.append({
-            "course": course,
+            "course": r.get("CourseKey"),
             "section": str(r.get("Class Section") or ""),
             "schedule": r.get("Schedule"),
             "days": days,
             "start_min": start_min,
             "end_min": end_min,
-            "instructor": r.get("Instructor_Normalized")
+            "instructor": r.get("Instructor_Name")
         })
 
     return {"sections": out}
