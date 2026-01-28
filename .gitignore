@@ -1,0 +1,40 @@
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+backend/.venv/
+
+# =====================
+# Environment variables
+# =====================
+.env
+.env.*
+backend/.env
+
+# =====================
+# FastAPI / Uvicorn
+# =====================
+*.log
+
+# =====================
+# Jupyter / notebooks
+# =====================
+.ipynb_checkpoints/
+
+# =====================
+# OS / Editor junk
+# =====================
+.DS_Store
+.vscode/
+.idea/
+
+# =====================
+# Docker
+# =====================
+pgdata/
