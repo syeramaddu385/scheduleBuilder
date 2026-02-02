@@ -6,7 +6,7 @@ from app.db import Base
 class courses(Base):
     __tablename__ = "courses"
 
-    id: Mapped[int] = mapped_columnn(Integer, primary_key = True)
+    id: Mapped[int] = mapped_column(Integer, primary_key = True)
 
     subject: Mapped[str] = mapped_column(String, index = True) # "COMP"
     catalog_number: Mapped[str] = mapped_column(String, index = True) # "210"
