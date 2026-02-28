@@ -1,91 +1,112 @@
-from fastapi import FastAPI
-from fastapi import Query
-import pandas as pd
-from datetime import datetime
+from fastapi import FastAPI, Query, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from app.db import SessionLocal
+from app.models import courses, sections, professor_ratings
+
+
+def make_name_key(full_name: str | None) -> str | None:
+    """Reduce 'First Middle Last' to 'first last' for fuzzy joining."""
+    if not full_name:
+        return None
+    parts = full_name.strip().split()
+    if len(parts) < 2:
+        return full_name.strip().lower()
+    return f"{parts[0]} {parts[-1]}".lower()
 
 
 app = FastAPI()
 
-def parse_schedule(sched: str | None):
-    if not sched:
-        return None, None, None
-    
-    sched = str(sched).strip()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    if not sched:
-        return None, None, None
-    
-    parts = sched.split(" ", 1)
-    if len(parts) != 2:
-        return None, None, None
-    
-    days = parts[0].strip()
-    time_part = parts[1].strip()
 
-    times = time_part.split("-", 1)
-    if len(times) != 2:
-        return None, None, None
-
-    start_time = times[0].strip()
-    end_time = times[1].strip()
-
+def get_db():
+    """Yield a database session and close it when the request is done."""
+    db = SessionLocal()
     try:
-        s = datetime.strptime(start_time, "%I:%M %p")
-        e = datetime.strptime(end_time, "%I:%M %p")
+        yield db
+    finally:
+        db.close()
 
-        start_min = s.hour * 60 + s.minute
-        end_min = e.hour * 60 + e.minute
-
-        return days, start_min, end_min
-    except ValueError:
-        return days, None, None
-
-
-DATA_PATH = "data/unc_all_sections_spring.csv"
-
-df = pd.read_csv(DATA_PATH)
-
-df["Subject"] = df["Subject"].astype(str)
-df["Catalog Number"] = df["Catalog Number"].astype(str)
-
-df["CourseKey"] = df["Subject"] + " " + df["Catalog Number"]
-df["NormalizedCourseKey"] = df["CourseKey"].str.lower().str.replace(" ", "")
 
 @app.get("/courses")
-def courses(q: str = Query("", description="Search like 'comp' or '210'")):
-    unique_courses = df[["CourseKey", "NormalizedCourseKey"]].drop_duplicates()
-    
+def get_courses(q: str = Query("", description="Search like 'comp' or '210'"), db: Session = Depends(get_db)):
     q_normalized = q.strip().lower().replace(" ", "")
 
+    query = db.query(courses.course_key)
+
     if q_normalized:
-        unique_courses = unique_courses[unique_courses["NormalizedCourseKey"].str.contains(q_normalized, na=False)]
-    
-    result = unique_courses["CourseKey"].tolist()
-    result.sort()
-    return {"courses": result[:50]}
+        query = query.filter(courses.normalized_course_key.contains(q_normalized))
+
+    results = query.order_by(courses.course_key).limit(50).all()
+    return {"courses": [row.course_key for row in results]}
+
 
 @app.get("/sections")
-def sections(course: str = Query(..., description="Course key like 'COMP 210'")):
+def get_sections(course: str = Query(..., description="Course key like 'COMP 210'"), db: Session = Depends(get_db)):
     course_normalized = course.strip().lower().replace(" ", "")
 
-    sub = df[df["NormalizedCourseKey"] == course_normalized].copy() # sub is a new dataframe consisting of all sections of inputted course
+    course_row = db.query(courses).filter(courses.normalized_course_key == course_normalized).first()
+    if not course_row:
+        raise HTTPException(status_code=404, detail=f"Course '{course}' not found")
 
-    sub = sub.where(pd.notna(sub), None) # converted NaN to None so converting to JSON is easier
+    rows = (
+        db.query(sections, professor_ratings)
+        .outerjoin(
+            professor_ratings,
+            (func.lower(sections.instructor_name) == func.lower(professor_ratings.instructor_name))
+            & (professor_ratings.subject == course_row.subject)
+            & (professor_ratings.catalog_number == course_row.catalog_number),
+        )
+        .filter(sections.course_id == course_row.id)
+        .all()
+    )
 
     out = []
-
-    for _,r in sub.iterrows():
-        days, start_min, end_min = parse_schedule(r.get("Schedule"))
-
+    for section, rating in rows:
         out.append({
-            "course": r.get("CourseKey"),
-            "section": str(r.get("Class Section") or ""),
-            "schedule": r.get("Schedule"),
-            "days": days,
-            "start_min": start_min,
-            "end_min": end_min,
-            "instructor": r.get("Instructor_Name")
+            "course": course_row.course_key,
+            "section": section.class_section,
+            "schedule": section.schedule_raw,
+            "days": section.days,
+            "start_min": section.start_min,
+            "end_min": section.end_min,
+            "instructor": section.instructor_name,
+            "avg_quality": rating.avg_quality if rating else None,
+            "avg_difficulty": rating.avg_difficulty if rating else None,
+            "would_take_again_pct": rating.would_take_again_pct if rating else None,
         })
 
     return {"sections": out}
 
+
+@app.get("/professors/{instructor_name}")
+def get_professor(instructor_name: str, db: Session = Depends(get_db)):
+    rows = (
+        db.query(professor_ratings)
+        .filter(func.lower(professor_ratings.instructor_name) == instructor_name.strip().lower())
+        .all()
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Professor '{instructor_name}' not found")
+
+    # Average across all courses they teach
+    avg_quality = sum(r.avg_quality for r in rows if r.avg_quality) / len(rows)
+    avg_difficulty = sum(r.avg_difficulty for r in rows if r.avg_difficulty) / len(rows)
+
+    return {
+        "instructor_name": rows[0].instructor_name,
+        "courses_taught": [f"{r.subject} {r.catalog_number}" for r in rows],
+        "avg_quality": round(avg_quality, 2),
+        "avg_difficulty": round(avg_difficulty, 2),
+        "num_ratings": rows[0].num_ratings,
+        "would_take_again_pct": rows[0].would_take_again_pct,
+    }

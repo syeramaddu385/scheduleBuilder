@@ -1,3 +1,4 @@
+alembic==1.14.1
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
@@ -10,6 +11,7 @@ httptools==0.7.1
 idna==3.11
 numpy==2.4.1
 pandas==2.3.3
+psycopg[binary]==3.2.9
 pydantic==2.12.5
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
@@ -19,6 +21,7 @@ pytz==2025.2
 PyYAML==6.0.3
 requests==2.32.5
 six==1.17.0
+sqlalchemy==2.0.41
 starlette==0.50.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
