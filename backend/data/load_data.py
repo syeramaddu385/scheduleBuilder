@@ -94,11 +94,13 @@ def load_courses_and_sections(db):
             sched = row.get("Schedule")
             days, start_min, end_min = parse_schedule(sched)
 
+            instructor = str(row.get("Instructor_Normalized") or "") or None
             s = sections(
                 course_id=parent.id,
                 class_section=str(row.get("Class Section") or ""),
                 schedule_raw=str(sched) if pd.notna(sched) else None,
-                instructor_name=str(row.get("Instructor_Normalized") or "") or None,
+                instructor_name=instructor,
+                name_key=make_name_key(instructor) if instructor else None,
                 days=days,
                 start_min=start_min,
                 end_min=end_min,
@@ -124,11 +126,16 @@ def load_professor_ratings(db):
     print(f"Inserting {len(df)} professor rating rows...")
     for _, row in df.iterrows():
         raw_name = str(row.get("Instructor_Name") or "")
+        # Strip trailing dashes/spaces from subject (e.g. "COMP-" -> "COMP")
+        subject = str(row.get("Subject") or "").strip().rstrip("-").strip().upper()
+        # Catalog numbers come as floats (e.g. 110.0) — convert to clean int string
+        raw_cat = row.get("Catalog Number")
+        catalog_number = str(int(float(raw_cat))) if pd.notna(raw_cat) else ""
         r = professor_ratings(
             instructor_name=raw_name,
             name_key=make_name_key(raw_name) if raw_name else None,
-            subject=str(row.get("Subject") or ""),
-            catalog_number=str(row.get("Catalog Number") or ""),
+            subject=subject,
+            catalog_number=catalog_number,
             num_ratings=int(row["num_ratings"]) if pd.notna(row.get("num_ratings")) else None,
             avg_quality=float(row["avg_quality"]) if pd.notna(row.get("avg_quality")) else None,
             avg_difficulty=float(row["avg_difficulty"]) if pd.notna(row.get("avg_difficulty")) else None,

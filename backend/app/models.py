@@ -31,6 +31,8 @@ class sections(Base):
     days: Mapped[str] = mapped_column(String, nullable = True, index = True) # e.g. "MWF"
     start_min: Mapped[int] = mapped_column(Integer, nullable = True, index = True) # minutes from midnight
     end_min: Mapped[int] = mapped_column(Integer, nullable = True, index = True)
+    # "first last" (no middle), lower-cased — matches professor_ratings.name_key
+    name_key: Mapped[str] = mapped_column(String, nullable = True, index = True)
 
     course = relationship("courses", back_populates="sections")
 

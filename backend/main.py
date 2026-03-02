@@ -7,16 +7,6 @@ from app.db import SessionLocal
 from app.models import courses, sections, professor_ratings
 
 
-def make_name_key(full_name: str | None) -> str | None:
-    """Reduce 'First Middle Last' to 'first last' for fuzzy joining."""
-    if not full_name:
-        return None
-    parts = full_name.strip().split()
-    if len(parts) < 2:
-        return full_name.strip().lower()
-    return f"{parts[0]} {parts[-1]}".lower()
-
-
 app = FastAPI()
 
 app.add_middleware(
@@ -61,7 +51,7 @@ def get_sections(course: str = Query(..., description="Course key like 'COMP 210
         db.query(sections, professor_ratings)
         .outerjoin(
             professor_ratings,
-            (func.lower(sections.instructor_name) == func.lower(professor_ratings.instructor_name))
+            (sections.name_key == professor_ratings.name_key)
             & (professor_ratings.subject == course_row.subject)
             & (professor_ratings.catalog_number == course_row.catalog_number),
         )
